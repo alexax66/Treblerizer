@@ -11,23 +11,25 @@
 #
 # -------------------------------------------
 # For more information and discussion, contact me at:
-# https://forum.xda-developers.com/
+# https://forum.xda-developers.com/axon-7/development/tool-party-v0-1-vendor-partition-t3831517
 
 # DEFAULT VARS
 OUTFD=$2
 ZIP=$3
-INSTALLER="/tmp/Party/"
+TOOLS="/tmp/tools/"
+
 if [ -z $2 ] ;  then 
   CONSOLE_SES=0 
 else 
   CONSOLE_SES=1
 fi
+
 LOGFILE="/cache/Party.log"
-CKFS="${INSTALLER}e2fsck"
-RSFS="${INSTALLER}resize2fs"
-GDSK="${INSTALLER}sgdisk"
-MKFS="${INSTALLER}mke2fs"
-KEYCHECK="${INSTALLER}keycheck"
+CKFS="${TOOLS}e2fsck"
+RSFS="${TOOLS}resize2fs"
+GDSK="${TOOLS}sgdisk"
+MKFS="${TOOLS}mke2fs"
+KEYCHECK="${TOOLS}keycheck"
 
 # DEFAULT PERMISSIONS
 umask 022
@@ -88,7 +90,7 @@ customkey() {
 cleanup() {
   cd /
   if [ $CONSOLE_SES -eq 1 ] ; then 
-    rm -rf $INSTALLER 2>/dev/null
+    rm -rf $TOOLS 2>/dev/null
   fi
   exit $1
 }
@@ -98,7 +100,7 @@ calc(){
 }
 getpart(){
   # given the partition label, returns the partition
-  readlink `find /dev/block/platform/ -name $1`
+  readlink `find /dev/block/platform/13540000.dwmmc0 -name $1`
 }
 getdisk(){
   # given the partition label, returns the disk
@@ -171,7 +173,8 @@ safe_resize(){
     ui_print  " - Sorry, resize of $1 file system"
     ui_print  "   not allowed. Do you want to format it?"
     ui_print  "   WARNING: ALL THE FILES WILL BE WIPED."
-    ui_print  "   Vol UP: FORMAT / Vol DN: CANCEL"
+    ui_print  "   Press Vol Up key: YES"
+    ui_print  "   Press Vol Down key: NO"
     if $vol_up ; then
       ui_print  " "
       ui_print  " - Wiping $PARTY file system..."
@@ -210,16 +213,16 @@ log "ARGS: $*"
 # extract files
 ui_print "Extracting tool..."
 log "CONSOLE_SES=$CONSOLE_SES"
-log "INSTALLER PATH: $INSTALLER"
-rm -rf $INSTALLER 2>/dev/null
-mkdir -p $INSTALLER
+log "TOOLS PATH: $TOOLS"
+rm -rf $TOOLS 2>/dev/null
+mkdir -p $TOOLS
 if [ $CONSOLE_SES = 1 ]; then
-  cd $INSTALLER
+  cd $TOOLS
   unzip -o "$ZIP"
 else
-  cp ./* $INSTALLER
+  cp ./* $TOOLS
 fi
-chmod 777 ${INSTALLER}/*
+chmod 777 ${TOOLS}/*
 dbg pwd
 dbg ls -als
 
@@ -232,7 +235,9 @@ ui_print " #   The Android Partition Treblerizer   #"
 ui_print " #                                       #"
 ui_print " #########################################"
 ui_print " #                                       #"
-ui_print " #     v0.5 (c) Oki @ XDA 2018-08-31     #"
+ui_print " #   v0.5 (c) Oki @ XDA 2018-08-31       #"
+ui_print " #   v0.6 Adapted for A3/A5 2016 by      #"
+ui_print " #   by alexax66 @ 4pda.ru 2020-01-31    #"
 ui_print " #                                       #"
 ui_print " #########################################"
 ui_print " "
@@ -252,21 +257,21 @@ else
   ui_print " - Device detected! but using custom key method"
   ui_print " "
   ui_print " - Vol Key Programming -"
-  ui_print "   Press Vol Up Again..."
+  ui_print "   Press Vol Up key Again..."
   $vol_up "UP"
-  ui_print "   Press Vol Down..."
+  ui_print "   Press Vol Down key..."
   $vol_up "DOWN"
 fi
 ui_print " "
 ui_print " CURRENT CONFIGURATION:"
-ui_print " SYSTEM size: $(calc $(( 100 * $(getsizemb system) /1024 ))/100) GB"
-ui_print " DATA size:  $(calc $(( 100 * $(getsizemb userdata) / 1024 ))/100) GB"
+ui_print " SYSTEM size: $(calc $(( 100 * $(getsizemb SYSTEM) /1024 ))/100) GB"
+ui_print " DATA size:  $(calc $(( 100 * $(getsizemb USERDATA) / 1024 ))/100) GB"
 
-ls /dev/block/bootdevice/by-name/vendor > /dev/null 2>&1 
+ls /dev/block/platform/13540000.dwmmc0/by-name/vendor > /dev/null 2>&1
 ISVENDOR=$?
 log " - ISVENDOR is $ISVENDOR"
 # IS there a vendor partition?
-
+ 
 if [ "$ISVENDOR" -eq 1 ] ; then
   ################################################################
   #                                                              #
@@ -278,7 +283,8 @@ if [ "$ISVENDOR" -eq 1 ] ; then
   ui_print  " - No Vendor partition Detected"
   ui_print  " "
   ui_print  " - Create new VENDOR partition?"
-  ui_print  "   Vol UP = YES, Vol DN = NO"
+  ui_print  "   Press Vol Up key: YES"
+  ui_print  "   Press Vol Down key: NO"
   if ! $vol_up ; then
     ui_print  " "
     ui_print  " - No changes were applied to the partition table."
@@ -286,24 +292,27 @@ if [ "$ISVENDOR" -eq 1 ] ; then
   fi
   ui_print  " "
   ui_print  " - Where do you want to take space from?"
-  ui_print  "   Vol UP: SYSTEM / Vol DN: DATA"
+  ui_print  "   WARNING: Using SYSTEM is strongly not recommended!"
+  ui_print  "   Press Vol Up key: from SYSTEM partition"
+  ui_print  "   Prees Vol Down key: from DATA partition"
   if $vol_up ; then
     PARTY=SYSTEM
-    LABEL=system
+    LABEL=SYSTEM
   else
     PARTY=DATA
-    LABEL=userdata
+    LABEL=USERDATA
   fi
   log " - PARTITION LABEL is $LABEL"
   dbg "$GDSK --print $(getdisk $LABEL)"
   ui_print  " - Vendor will be splitted from $PARTY."
   ui_print  " "
-  ui_print  " - What is your desired Vendor partition size ?"
-  ui_print  "   Vol UP: 512MB / Vol DN: 800MB"
+  ui_print  " - What is your desired Vendor partition size?"
+  ui_print  "   Press Vol Up key: 512 MB"
+  ui_print  "   Press Vol Down key: 256 MB"
   if $vol_up ; then
     SIZEMB=512
   else
-    SIZEMB=800
+    SIZEMB=256
   fi
   log " - SIZE will be $SIZEMB"
   ui_print  " "
@@ -311,7 +320,8 @@ if [ "$ISVENDOR" -eq 1 ] ; then
   ui_print  " "
   ui_print  " - Place Vendor after or before $PARTY partition?"
   ui_print  "   WARNING: BEFORE requires full wipe of $PARTY."
-  ui_print  "   Vol UP: AFTER / Vol DN: BEFORE"
+  ui_print  "   Press Vol Up key: AFTER"
+  ui_print  "   Press Vol Down key: BEFORE"
   if $vol_up ; then
     POSITION=end
   else
@@ -375,7 +385,8 @@ if [ "$ISVENDOR" -eq 1 ] ; then
     ui_print  "   not allowed in this configuration." 
     ui_print  "   Do you want to format it?"
     ui_print  "   WARNING: ALL THE FILES WILL BE WIPED."
-    ui_print  "   Vol UP: FORMAT / Vol DN: CANCEL"
+    ui_print  "   Pree Vol Up key: YES"
+    ui_print  "   Pree Vol Down key: NO"
     if ! $vol_up ; then
       ui_print  " "
       ui_print  " - No changes were applied to the partition table."
@@ -400,11 +411,11 @@ else
   ui_print " VENDOR SIZE: $(getsizemb vendor) MB"
   ui_print " "
   dbg "$GDSK --print $(getdisk vendor)"
-  if  consecutive vendor system ; then
-      LABEL=system
+  if  consecutive vendor SYSTEM ; then
+      LABEL=SYSTEM
       PARTY=SYSTEM
-  elif  consecutive vendor userdata  ; then
-      LABEL=userdata
+  elif  consecutive vendor USERDATA  ; then
+      LABEL=USERDATA
       PARTY=DATA
   else
     ui_print  " "
@@ -422,7 +433,8 @@ else
     ui_print  " - Vendor partition detected after $PARTY partition."
     ui_print  "   Do you want to remove Vendor and return to stock" 
     ui_print  "   partition table?"
-    ui_print  "   Vol UP: YES / Vol DN: NO"
+    ui_print  "   Press Vol Up key: YES"
+    ui_print  "   Press Vol Down key: NO"
     if ! $vol_up ; then
       ui_print  " "
       ui_print  " - No changes were applied to the partition table."
@@ -459,7 +471,8 @@ else
     ui_print  "   Sorry, resize of $PARTY file system not allowed"
     ui_print  "   in this case. Do you want to format it?"
     ui_print  "   WARNING: ALL THE FILES WILL BE WIPED."
-    ui_print  "   Vol UP: FORMAT / Vol DN: CANCEL"
+    ui_print  "   Press Vol Up key: YES"
+    ui_print  "   Press Vol Down key: NO"
     if ! $vol_up; then
       ui_print  " "
       ui_print  " - No changes were applied to the partition table."
@@ -485,7 +498,8 @@ ui_print  " "
 ui_print  " - WARNING: Kernel is still using the old table."
 ui_print  "   Reboot recovery is highly recommended."
 ui_print  "   Do you want to reboot recovery now?"
-ui_print  "   Vol UP: YES / Vol DN: NO"
+ui_print  "   Press Vol Up key: YES"
+ui_print  "   Press Vol Down key: NO"
 if $vol_up; then
   reboot recovery
 fi

@@ -1,0 +1,24 @@
+Change Log:
+
+v0.6 - 2020.01.31
+* Adapted for Samsung Galaxy A3/A5 2016.
+* Reduced min size of vendor partition to 256 MB
+
+v0.5 - 2018.08.31
+* Provides size information for relevant partitions and status for vendor partition.
+* Estructures created for future integration into TWRP as a script.
+
+v0.4 - 2018.08.29
+* Support for system and userdata etx4 partition resize in devices with single logical disk.
+
+v0.3 - 2018.08.29
+* Bug fixes affecting the general case
+* Full support for ARM devices with a single logical disk
+
+v0.2 - 2018.08.26
+* Major code restructuration
+* support for ARM devices with a single logical disk
+* Added static versions of the tools
+
+v0.1 - 2018.08.18
+* First functional release for the ZTE Axon 7
