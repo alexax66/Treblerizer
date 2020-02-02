@@ -1,0 +1,492 @@
+#!/sbin/sh
+
+# Android Partition Treblerizer (c) Oki @ XDA
+# -------------------------------------------
+#
+# I will provide some help here to understand  what it really does.
+#
+# You can use this code or portions of it, but you have to give credit
+# for it inside the code, mentioning me, and in any credits block inside
+# the program.
+#
+# -------------------------------------------
+# For more information and discussion, contact me at:
+# https://forum.xda-developers.com/
+
+# DEFAULT VARS
+OUTFD=$2
+ZIP=$3
+INSTALLER="/tmp/Party/"
+if [ -z $2 ] ;  then 
+  CONSOLE_SES=0 
+else 
+  CONSOLE_SES=1
+fi
+LOGFILE="/cache/Party.log"
+CKFS="${INSTALLER}e2fsck"
+RSFS="${INSTALLER}resize2fs"
+GDSK="${INSTALLER}sgdisk"
+MKFS="${INSTALLER}mke2fs"
+KEYCHECK="${INSTALLER}keycheck"
+
+# DEFAULT PERMISSIONS
+umask 022
+
+ui_print() {
+  echo -e "$*" >> $LOGFILE
+  if [ $CONSOLE_SES = 0 ]; then
+    echo  -e "$*"
+  else
+    echo -n -e "ui_print $*\n" > /proc/self/fd/$OUTFD
+    echo -n -e "ui_print\n" > /proc/self/fd/$OUTFD
+  fi
+}
+
+dbg() {
+    # EXECUTES COMMAND AND REDIRECT OUTPUT TO LOG FILE
+    echo -e -n "\nPARTY:" >> $LOGFILE
+    echo -e -n "`pwd`" >> $LOGFILE
+    echo -e " # $*" >> $LOGFILE
+    echo "" >> $LOGFILE
+    $* 1>> $LOGFILE 2>&1 
+}
+
+log() {
+    # OUTPUT ARGS TO LOG FILE
+    echo -e "LOG: $*" >> $LOGFILE
+    echo "" >> $LOGFILE
+}
+
+keytest() {
+  $KEYCHECK
+  KEYCODE=$?
+  if [ "$KEYCODE" -eq 42 ] ; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+customkey() {
+  # Calling it first time detects previous input. Calling it second time will do what we want
+  $KEYCHECK
+  SEL=$?
+  if [ "$1" == "UP" ]; then
+    UP=$SEL
+  elif [ "$1" == "DOWN" ]; then
+    DOWN=$SEL
+  elif [ $SEL -eq $UP ]; then
+    return 0
+  elif [ $SEL -eq $DOWN ]; then
+    return 1
+  else
+    ui_print "   Vol key not detected!"
+    abort "   Use name change method in TWRP"
+  fi
+}
+
+cleanup() {
+  cd /
+  if [ $CONSOLE_SES -eq 1 ] ; then 
+    rm -rf $INSTALLER 2>/dev/null
+  fi
+  exit $1
+}
+
+calc(){ 
+  awk "BEGIN { print "$*" }"
+}
+getpart(){
+  # given the partition label, returns the partition
+  readlink `find /dev/block/platform/ -name $1`
+}
+getdisk(){
+  # given the partition label, returns the disk
+  # old and buggy >>>>>  echo "`readlink /dev/block/bootdevice/by-name/$1 | sed -e's/[0-9]//g'`"
+  getpart $1 | rev | sed -e's:[0-9]*::' -e's:p::I' | rev
+}
+getnode(){
+  # given the disk node and partition number, returns the fs node for the partition
+  echo -n $1 | rev | sed 's:[0-9]:p&:' | rev ; echo $2
+}
+getalign(){
+  # given the partition label, returns the sector align
+  $GDSK --print $(getdisk $1) | grep 'aligned' | tr -dc '0-9'
+}
+getsecsize(){
+  # given the partition label, returns the sector size in bytes
+  $GDSK --print $(getdisk $1) | grep 'sector size' | tr -s ' ' | cut -d' ' -f4
+}
+getsizemb(){
+  echo $(( ( 1 + $(getend $1) - $(getini $1) ) * $(getsecsize $1) / 1024 / 1024 ))
+}
+getslots(){
+  # given the partition label, returns the total number of slots in partition table
+  $GDSK --print $(getdisk $1) | grep 'holds up to' | tr -s ' ' | cut -d' ' -f6
+}
+getlast(){
+  # given the partition label, returns the last partition number
+  $GDSK --print $(getdisk $1) | tail -1 |tr -s ' ' |cut -d' ' -f2
+}
+getnum(){
+  # given the partition label, returns the partition number
+  $GDSK --print $(getdisk $1) | grep $1 | tr -s ' ' | cut -d' ' -f2
+}
+getini(){
+  # given the partition label, returns its initial sector
+  $GDSK --print $(getdisk $1) | grep $1 | tr -s ' ' | cut -d' ' -f3
+}
+getend(){
+  # given the partition label, returns its last sector
+  $GDSK --print $(getdisk $1) | grep $1 | tr -s ' ' | cut -d' ' -f4
+}
+distance(){
+  # returns the distance between two numbers
+  echo $(( $1 - $2 )) | tr -d -
+}
+consecutive(){
+  # SYNTAX: consecutive $partition_label1 $partition_label2
+  # Returns true (0) if the partition labels are in the same disk and are consecutive
+  if  [ $(getdisk $1) != $(getdisk $2) ] ; then
+    return 1
+  fi
+  if [ $( distance $(getini $1) $(getend $2) ) -le $(getalign $1) ]; then
+    return 0
+  fi
+  if [ $( distance $(getini $2) $(getend $1) ) -le $(getalign $1) ]; then
+    return 0
+  fi
+  return 1
+}
+
+safe_resize(){
+  # SYNTAX: warn_resize $partition
+  # returns true (0) if $partition can be safely resized
+  ui_print  " "
+  ui_print  " - Trying to resize $1 without wipe..."
+  PARTMINSIZE=`$RSFS -P $(getpart $1) | grep minimum | tr -s ' ' | cut -d' ' -f7`
+  log  " - PARTMINSIZE is $PARTMINSIZE."
+  if [ -z $PARTMINSIZE ] ; then
+    ui_print  " "
+    ui_print  " - Sorry, resize of $1 file system"
+    ui_print  "   not allowed. Do you want to format it?"
+    ui_print  "   WARNING: ALL THE FILES WILL BE WIPED."
+    ui_print  "   Vol UP: FORMAT / Vol DN: CANCEL"
+    if $vol_up ; then
+      ui_print  " "
+      ui_print  " - Wiping $PARTY file system..."
+      return 1
+    else
+      ui_print  " "
+      ui_print  " - No changes were applied to the partition table."
+      cleanup 0
+    fi
+  fi
+  ui_print  " "
+  ui_print  " - No wipe required, $1 can be safely resized."
+  return 0
+}
+
+unmount(){
+  # SYNTAX: unmount $partition_label
+  if cat /proc/mounts | grep $(getpart $1) > /dev/null ; then
+    # if partition is mounted
+    log " - unmounting $1 ($(getpart $1))"
+    umount $(getpart $1)
+    return 0
+  else
+    log " - $1 ($(getpart $1)) was already unmounted"
+    return 1
+  fi
+}
+
+##### THE PARTY STARTS HERE ########
+
+# INITIAL CLEANUP
+rm $LOGFILE 2>/dev/null
+date > $LOGFILE
+log "ARGS: $*"
+
+# extract files
+ui_print "Extracting tool..."
+log "CONSOLE_SES=$CONSOLE_SES"
+log "INSTALLER PATH: $INSTALLER"
+rm -rf $INSTALLER 2>/dev/null
+mkdir -p $INSTALLER
+if [ $CONSOLE_SES = 1 ]; then
+  cd $INSTALLER
+  unzip -o "$ZIP"
+else
+  cp ./* $INSTALLER
+fi
+chmod 777 ${INSTALLER}/*
+dbg pwd
+dbg ls -als
+
+ui_print " "
+ui_print " #########################################"
+ui_print " #                                       #"
+ui_print " #             - P A R T Y -             #"
+ui_print " #                                       #"
+ui_print " #   The Android Partition Treblerizer   #"
+ui_print " #                                       #"
+ui_print " #########################################"
+ui_print " #                                       #"
+ui_print " #     v0.5 (c) Oki @ XDA 2018-08-31     #"
+ui_print " #                                       #"
+ui_print " #########################################"
+ui_print " "
+ui_print " "
+ui_print " This tool creates or removes the vendor"
+ui_print " partition taking space from system or" 
+ui_print " userdata partitions. This way, developers" 
+ui_print " will be able to create Treble ROMs for" 
+ui_print " legacy devices. and users can switch back"
+ui_print " and forth from Non Treble to Treble ROMs."
+ui_print " "
+ui_print " Press Vol Up to continue..."
+if keytest; then
+  vol_up=keytest
+else
+  vol_up=customkey
+  ui_print " - Device detected! but using custom key method"
+  ui_print " "
+  ui_print " - Vol Key Programming -"
+  ui_print "   Press Vol Up Again..."
+  $vol_up "UP"
+  ui_print "   Press Vol Down..."
+  $vol_up "DOWN"
+fi
+ui_print " "
+ui_print " CURRENT CONFIGURATION:"
+ui_print " SYSTEM size: $(calc $(( 100 * $(getsizemb system) /1024 ))/100) GB"
+ui_print " DATA size:  $(calc $(( 100 * $(getsizemb userdata) / 1024 ))/100) GB"
+
+ls /dev/block/bootdevice/by-name/vendor > /dev/null 2>&1 
+ISVENDOR=$?
+log " - ISVENDOR is $ISVENDOR"
+# IS there a vendor partition?
+
+if [ "$ISVENDOR" -eq 1 ] ; then
+  ################################################################
+  #                                                              #
+  #                   CREATE VENDOR PARTITION                    #
+  #                                                              #
+  ################################################################
+  log " - VENDOR NOT DETECTED"
+  ui_print  " "
+  ui_print  " - No Vendor partition Detected"
+  ui_print  " "
+  ui_print  " - Create new VENDOR partition?"
+  ui_print  "   Vol UP = YES, Vol DN = NO"
+  if ! $vol_up ; then
+    ui_print  " "
+    ui_print  " - No changes were applied to the partition table."
+    cleanup 0
+  fi
+  ui_print  " "
+  ui_print  " - Where do you want to take space from?"
+  ui_print  "   Vol UP: SYSTEM / Vol DN: DATA"
+  if $vol_up ; then
+    PARTY=SYSTEM
+    LABEL=system
+  else
+    PARTY=DATA
+    LABEL=userdata
+  fi
+  log " - PARTITION LABEL is $LABEL"
+  dbg "$GDSK --print $(getdisk $LABEL)"
+  ui_print  " - Vendor will be splitted from $PARTY."
+  ui_print  " "
+  ui_print  " - What is your desired Vendor partition size ?"
+  ui_print  "   Vol UP: 512MB / Vol DN: 800MB"
+  if $vol_up ; then
+    SIZEMB=512
+  else
+    SIZEMB=800
+  fi
+  log " - SIZE will be $SIZEMB"
+  ui_print  " "
+  ui_print  " - $SIZEMB MB will be taken from $PARTY."
+  ui_print  " "
+  ui_print  " - Place Vendor after or before $PARTY partition?"
+  ui_print  "   WARNING: BEFORE requires full wipe of $PARTY."
+  ui_print  "   Vol UP: AFTER / Vol DN: BEFORE"
+  if $vol_up ; then
+    POSITION=end
+  else
+    POSITION=start
+  fi
+  log " - POSITION IS $POSITION"
+  ui_print  " "
+  ui_print  " - Vendor will be at the $POSITION of $PARTY."
+  ui_print  " "
+  ui_print  " - Disk $(getdisk $LABEL) will be used."
+  $GDSK --print $(getdisk $LABEL)
+  
+  # WE IDENTIFY THE VENDOR NEW PARTITION NUMBER
+  VENDORNUM=$(( $(getlast $LABEL) + 1 ))
+  log  " - NEW VENDORNUM is $VENDORNUM."
+
+  # Check if we will need to expand the partition table
+  RESIZETABLE=""
+  ui_print  " "
+  if (( $VENDORNUM > $(getslots $LABEL) )) ; then
+     ui_print  " - Partition Table too small, resizing."
+     RESIZETABLE=" --resize-table=$VENDORNUM"
+  else
+     ui_print  " - Empty slot available in Partition Table."
+  fi
+  if [ "$POSITION" = "end" ] ; then
+    ################################################################
+    #             CREATE VENDOR PARTITION AT THE END               #
+    ################################################################
+    ui_print  " - Splitting Vendor from $PARTY's end."
+    NEWINI=$(( 1 + $(getend $LABEL) - $SIZEMB * 1024 * 1024 / $(getsecsize $LABEL) ))
+    log  " - NEWINI is $NEWINI."
+    ########################## TRY RESIZE ##########################
+    safe_resize $LABEL
+    SAFE=$?
+    unmount $LABEL
+    if [ $SAFE -eq 0 ] ; then
+      ### CHECK FILESYSTEM ###
+      ui_print  " - Checking $PARTY for errors..."
+      dbg "$CKFS -y -f $(getpart $LABEL)"
+      ### RESIZE FILESYSTEM ###
+      ui_print  " - Resizing $PARTY filesystem..."
+      dbg "$RSFS $(getpart $LABEL) $(( $NEWINI - $(getini $LABEL) ))"
+    fi
+    ### WRITE PARTITION TABLE ###
+    ui_print  " - Adjusting partition table for" 
+    ui_print  "   disk $(getdisk $LABEL) ..."
+    dbg "$GDSK $RESIZETABLE --delete=$(getnum $LABEL) --new=$(getnum $LABEL):$(getini $LABEL):$(( $NEWINI - 1 )) --change-name=$(getnum $LABEL):$LABEL --new=$VENDORNUM:$NEWINI:$(getend $LABEL) --change-name=$VENDORNUM:vendor --print $(getdisk $LABEL)"
+    sleep 2
+    if [ $SAFE -eq 1 ] ; then
+      ### FORMAT MOTHER PARTITION IF REQUIRED AND AUTHORISED ###
+      ui_print  " - Formatting $PARTY as ext4"
+      dbg "$MKFS -t ext4 $(getpart $LABEL)"
+    fi
+  else
+    ################################################################
+    #          CREATE VENDOR PARTITION AT THE BEGINING             #
+    ################################################################
+    ui_print  " "
+    ui_print  " - Sorry, resize of $PARTY file system"
+    ui_print  "   not allowed in this configuration." 
+    ui_print  "   Do you want to format it?"
+    ui_print  "   WARNING: ALL THE FILES WILL BE WIPED."
+    ui_print  "   Vol UP: FORMAT / Vol DN: CANCEL"
+    if ! $vol_up ; then
+      ui_print  " "
+      ui_print  " - No changes were applied to the partition table."
+      cleanup 0
+    fi
+    unmount $LABEL
+    ui_print  " - Splitting Vendor from $PARTY's start."
+    NEWINI=$(( $(getini $LABEL) + $SIZEMB * 1024 * 1024 / $(getsecsize $LABEL) ))
+    log  " - NEWINI is $NEWINI."
+    dbg "$GDSK $RESIZETABLE --delete=$(getnum $LABEL) --new=$(getnum $LABEL):$NEWINI:$(getend $LABEL) --change-name=$(getnum $LABEL):$LABEL --new=$VENDORNUM:$(getini $LABEL):$(( $NEWINI - 1 )) --change-name=$VENDORNUM:vendor --print $(getdisk $LABEL)"
+    sleep 2
+    dbg "$MKFS -t ext4 $(getpart $LABEL)" 
+  fi
+  ui_print  " - Formatting /vendor as ext4"
+  dbg "$MKFS -t ext4 $(getnode $(getdisk $LABEL) $VENDORNUM)" 
+else
+  ################################################################
+  #                                                              #
+  #                   REMOVE VENDOR PARTITION                    #
+  #                                                              #
+  ################################################################
+  ui_print " VENDOR SIZE: $(getsizemb vendor) MB"
+  ui_print " "
+  dbg "$GDSK --print $(getdisk vendor)"
+  if  consecutive vendor system ; then
+      LABEL=system
+      PARTY=SYSTEM
+  elif  consecutive vendor userdata  ; then
+      LABEL=userdata
+      PARTY=DATA
+  else
+    ui_print  " "
+    ui_print  " - Vendor isn't next to system or data partitions."
+    ui_print  "   Partition table structure not compatible with "
+    ui_print  "   this program."
+    ui_print  "   No changes were applied to the partition table."
+    cleanup 0
+  fi
+  if [ $(getini $LABEL) -lt $(getini vendor) ] ; then
+    ################################################################
+    #             REMOVE VENDOR PARTITION AT THE END               #
+    ################################################################
+    ui_print  " "
+    ui_print  " - Vendor partition detected after $PARTY partition."
+    ui_print  "   Do you want to remove Vendor and return to stock" 
+    ui_print  "   partition table?"
+    ui_print  "   Vol UP: YES / Vol DN: NO"
+    if ! $vol_up ; then
+      ui_print  " "
+      ui_print  " - No changes were applied to the partition table."
+      cleanup 0
+    fi
+    safe_resize $LABEL
+    SAFE=$?
+    log " - SAFE is $SAFE."
+    unmount $LABEL
+    unmount vendor
+    ### WRITE PARTITION TABLE ###
+    ui_print  " - Adjusting partition table for" 
+    ui_print  "   disk $(getdisk $LABEL) ..."
+    dbg "$GDSK --delete=$(getnum vendor) --delete=$(getnum $LABEL) --new=$(getnum $LABEL):$(getini $LABEL):$(getend vendor) --change-name=$(getnum $LABEL):$LABEL --print $(getdisk vendor)"
+    sleep 2
+    if [ $SAFE -eq 0 ] ; then
+      ### CHECK MOTHER FILESYSTEM ###
+      ui_print  " - Checking $PARTY for errors..."
+      dbg "$CKFS -y -f $(getpart $LABEL)"
+      ### RESIZE MOTHER FILESYSTEM ###
+      ui_print  " - Resizing $PARTY filesystem..."
+      dbg "$RSFS $(getpart $LABEL) $((  $(getend $LABEL) - $(getini $LABEL) + 1 ))"
+    else
+      ### FORMAT MOTHER PARTITION IF REQUIRED AND AUTHORISED ###
+      ui_print  " - Formatting $PARTY as ext4..."
+      dbg "$MKFS -t ext4 $(getpart $LABEL)"
+    fi
+  else
+    ################################################################
+    #          REMOVE VENDOR PARTITION AT THE BEGINING             #
+    ################################################################
+    ui_print  " "
+    ui_print  " - Vendor partition detected before $PARTY partition."
+    ui_print  "   Sorry, resize of $PARTY file system not allowed"
+    ui_print  "   in this case. Do you want to format it?"
+    ui_print  "   WARNING: ALL THE FILES WILL BE WIPED."
+    ui_print  "   Vol UP: FORMAT / Vol DN: CANCEL"
+    if ! $vol_up; then
+      ui_print  " "
+      ui_print  " - No changes were applied to the partition table."
+      cleanup 0
+    fi
+    unmount $LABEL
+    unmount vendor
+    ### WRITE PARTITION TABLE ###
+    ui_print  " - Adjusting partition table for" 
+    ui_print  "   disk $(getdisk $vendor) ..."
+    dbg "$GDSK --delete=$(getnum vendor) --delete=$(getnum $LABEL) --new=$(getnum $LABEL):$(getini vendor):$(getend $LABEL) --change-name=$(getnum $LABEL):$LABEL --print $(getdisk vendor)"
+    sleep 2
+    ### FORMAT MOTHER PARTITION ###
+    ui_print  " - Formatting $PARTY as ext4..."
+    dbg "$MKFS -t ext4 $(getpart $LABEL)"
+  fi
+  ui_print  " "
+  ui_print  " - Vendor partition has been removed,"
+  ui_print  "   space added to $PARTY."
+fi
+ui_print  "   Done OK."
+ui_print  " "
+ui_print  " - WARNING: Kernel is still using the old table."
+ui_print  "   Reboot recovery is highly recommended."
+ui_print  "   Do you want to reboot recovery now?"
+ui_print  "   Vol UP: YES / Vol DN: NO"
+if $vol_up; then
+  reboot recovery
+fi
+cleanup 0
