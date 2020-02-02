@@ -29,7 +29,6 @@ WARNING, THIS SOFTWARE COULD WIPE ALL THE DATA IN YOUR DEVICE, INCLUDING THE INT
 IT REQUIRES TWRP CUSTOM RECOVERY IN AN UNLOCKED DEVICE, OTHERWISE YOUR DEVICE COULD BE BRICKED.
 !!! Whatever you do, it is at your own risk !!!
 
-
 ### Either for creating or removing a vendor partition, follow these steps:
 
     - Download the TWRP ZIP tool to your External SD card.
@@ -47,7 +46,7 @@ IT REQUIRES TWRP CUSTOM RECOVERY IN AN UNLOCKED DEVICE, OTHERWISE YOUR DEVICE CO
 
 ## REMOVE THE VENDOR PARTITION
 
-Should a Vendor module already exists, Party offers to remove it, returning to a Non-Treble
+Should a Vendor module partition exists, Treblerizer offers to remove it, returning to a Non-Treble
 partition table. It will return the space to the mother partition, system or userdata. So,
 older non Treble ROMs could be flashed after the mandatory reboot.
 
@@ -60,4 +59,4 @@ C'mon, it's just a script. Use this source in your projects but don't forget to 
 ## CREDITS
 - @Oki for his [idea and script](https://forum.xda-developers.com/axon-7/development/tool-party-v0-1-vendor-partition-t3831517)
 - @someone755 for the [keycheck](https://github.com/someone755/kerneller/blob/master/extract/tools/keycheck) binary
-- @Zackptg5 for the V4A install script that inspired my version.
+- @Zackptg5 for the V4A install script that inspired this project.
