@@ -37,7 +37,7 @@ IT REQUIRES TWRP CUSTOM RECOVERY IN AN UNLOCKED DEVICE, OTHERWISE YOUR DEVICE CO
     - Reboot to recovery again to ensure the changes are applied properly.
     - In some cases you will need to format the mother partition after adding or removing the vendor partition next to it.
 
-## CREATE A VENDOR PARTITION:
+## CREATE A VENDOR PARTITION
 
 ### So far these are the available options:
 
@@ -45,7 +45,7 @@ IT REQUIRES TWRP CUSTOM RECOVERY IN AN UNLOCKED DEVICE, OTHERWISE YOUR DEVICE CO
     - Split position: Splitting from the end / start of the mother partition.
     - Vendor partition size: 512 / 256 MB
 
-## REMOVE THE VENDOR PARTITION:
+## REMOVE THE VENDOR PARTITION
 
 Should a Vendor module already exists, Party offers to remove it, returning to a Non-Treble
 partition table. It will return the space to the mother partition, system or userdata. So,
@@ -55,7 +55,7 @@ older non Treble ROMs could be flashed after the mandatory reboot.
 [Repartitioning_v0.6_a3xelte.zip](https://github.com/alexax66/Treblerizer/raw/master/Download/Repartitioning_v0.6_a3xelte.zip)
 
 ## LICENSE
-Use this source in your projects but don't forget to give credit.
+C'mon, it's just a script. Use this source in your projects but don't forget to give credit!
 
 ## CREDITS
 - @Oki for his [idea and script](https://forum.xda-developers.com/axon-7/development/tool-party-v0-1-vendor-partition-t3831517)
